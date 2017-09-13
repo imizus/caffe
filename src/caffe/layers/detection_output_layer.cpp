@@ -208,11 +208,17 @@ void DetectionOutputLayer<Dtype>::Reshape(const vector<Blob<Dtype>*>& bottom,
   vector<int> top_shape(2, 1);
   // Since the number of bboxes to be kept is unknown before nms, we manually
   // set it to (fake) 1.
-  top_shape.push_back(1);
+  top_shape.push_back(keep_top_k_);
   // Each row is a 7 dimension vector, which stores
   // [image_id, label, confidence, xmin, ymin, xmax, ymax]
   top_shape.push_back(7);
   top[0]->Reshape(top_shape);
+
+  // Patch for MO
+/*  vector<int> top_shape2(2, 1);
+  top_shape2.push_back(keep_top_k_);
+  top_shape2.push_back(7);
+  top[0]->Reshape(top_shape2);*/
 }
 
 template <typename Dtype>
