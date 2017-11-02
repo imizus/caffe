@@ -215,10 +215,10 @@ void DetectionOutputLayer<Dtype>::Reshape(const vector<Blob<Dtype>*>& bottom,
   top[0]->Reshape(top_shape);
 
   // Patch for MO
-/*  vector<int> top_shape2(2, 1);
+  vector<int> top_shape2(2, 1);
   top_shape2.push_back(keep_top_k_);
   top_shape2.push_back(7);
-  top[0]->Reshape(top_shape2);*/
+  top[0]->Reshape(top_shape2);
 }
 
 template <typename Dtype>
