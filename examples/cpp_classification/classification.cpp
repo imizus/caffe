@@ -48,6 +48,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include <caffe/mkldnn_memory.hpp>
+#include "../../external/mkldnn/src/src/common/memory_desc_wrapper.hpp"
+
 #ifdef USE_OPENCV
 using namespace caffe;  // NOLINT(build/namespaces)
 using std::string;
@@ -183,7 +186,45 @@ void Classifier::SetMean(const string& mean_file) {
   /* Compute the global mean pixel value and create a mean image
    * filled with this value. */
   cv::Scalar channel_mean = cv::mean(mean);
+  channel_mean[0] = round(channel_mean[0]);
+  channel_mean[1] = round(channel_mean[1]);
+  channel_mean[2] = round(channel_mean[2]);
   mean_ = cv::Mat(input_geometry_, mean.type(), channel_mean);
+}
+
+template<typename Dtype> void printBlob(shared_ptr<Blob<Dtype> > blob) {
+	if (const_cast<float*>(blob->prv_data()) != NULL) {
+		int count = blob->prv_data_count();
+		count = fmin(count, 300);
+
+		std::cout << "MKLDNN" << std::endl;
+		shared_ptr<MKLDNNMemoryDescriptor<float, false> > blob_prv_mkldnn_mem_descr = caffe::get_mkldnn_prv_descriptor<float, false>(blob.get());
+		auto data = blob_prv_mkldnn_mem_descr->get_memory_desc()->data;
+		mkldnn::impl::memory_desc_wrapper mdw(data);
+		for (int i = 0; i < count; i++) {
+			int inx = mdw.off_l(i);
+			if (data.data_type == mkldnn_f32) {
+				std::cout << "[F32] " << ((float*)blob->prv_data())[inx] << std::endl;
+			} else if (data.data_type == mkldnn_s8) {
+				std::cout << "[S8] " << (int)(((int8_t*)blob->prv_data())[inx]) << std::endl;
+			} else if (data.data_type == mkldnn_u8) {
+				std::cout << "[U8] " << (int)(((uint8_t*)blob->prv_data())[inx]) << std::endl;
+			} else if (data.data_type == mkldnn_s32) {
+				std::cout << "[S32] " << ((int*)blob->prv_data())[inx] << std::endl;
+			} else {
+				std::cerr << "Unknown precision!" << std::endl;
+				return;
+			}
+		}
+	} else {
+		int count = blob->count();
+		count = fmin(count, 300);
+
+		std::cout << "CPU" << std::endl;
+		for (int i = 0; i < count; i++) {
+		  std::cout << "[F32] " << ((float*)blob->cpu_data())[i] << std::endl;
+		}
+	}
 }
 
 std::vector<float> Classifier::Predict(const cv::Mat& img) {
@@ -199,6 +240,25 @@ std::vector<float> Classifier::Predict(const cv::Mat& img) {
   Preprocess(img, &input_channels);
 
   net_->Forward();
+
+  for (auto name : net_->layer_names()) {
+	  auto layer = net_->layer_by_name(name);
+
+	  for (int i = 0; i < layer->blobs().size(); i++) {
+		  std::cout << "============== Layer name: " << name << " ==== ";
+		  std::cout << "Blob #" << i << " ==== ";
+
+		  printBlob<float>(layer->blobs()[i]);
+	  }
+  }
+
+  // Reading the output blobs
+  for (auto name : net_->blob_names()) {
+	  std::cout << "============== Layer name: " << name << " ==== OUTPUT ==== ";
+	  auto blob = net_->blob_by_name(name);
+
+	  printBlob<float>(blob);
+  }
 
   /* Copy the output layer to a std::vector */
   Blob<float>* output_layer = net_->output_blobs()[0];
@@ -247,10 +307,11 @@ void Classifier::Preprocess(const cv::Mat& img,
     sample_resized = sample;
 
   cv::Mat sample_float;
-  if (num_channels_ == 3)
+  if (num_channels_ == 3) {
     sample_resized.convertTo(sample_float, CV_32FC3);
-  else
+  } else {
     sample_resized.convertTo(sample_float, CV_32FC1);
+  }
 
   cv::Mat sample_normalized;
   cv::subtract(sample_float, mean_, sample_normalized);
